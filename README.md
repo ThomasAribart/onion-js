@@ -49,8 +49,9 @@ import type { Layer } from '@onion.js/core'
 import type { Objects } from 'hotscript'
 
 const jsonStringifyBody: Layer<
-  Record<string, unknown>, // subject type
+  { body: unknown }, // before type constraint
   Objects.Update<'body', string>, // outward HO Type
+  { body: string }, // after type constraint
   Objects.Update<'body', unknown> // inward HO Type
 > = before => {
   const after = {
@@ -85,23 +86,28 @@ Notice how the `after` type is correctly inferred thanks to [Hotscript](https://
 ```ts
 import type { Identity } from 'hotscript'
 
-// Logs the object
-const logObject: Layer<
-  Record<string, unknown>,
-  Identity,
-  Identity
-> = before => {
+type ObserveLayer = Layer<unknown, Identity, unknown, Identity>
+
+// Logs the subject
+const observe: ObserveLayer = before => {
   console.log(before)
   return before
 }
 
 // Layers are gracefully composed 🙌
 const after = Onion.wrap(before).with(
-  logObject, // 1st layer
+  observe, // 1st layer
   jsonStringifyBody, // 2nd layer etc.
   ...
 )
 ```
+
+> `Onion.wrap` checks that the before and after type constraints are respected and returns `never` if they are not:
+>
+> ```ts
+> const after = Onion.wrap('invalidBefore').with(jsonStringifyBody)
+> //      ^? never
+> ```
 
 ## ♻️ `Onion.produce<TYPE>`
 
@@ -117,14 +123,32 @@ For instance, we can reuse `jsonStringifyBody` to produce the same result as abo
 const after = Onion.produce<{ headers: null; body: string }>()
   .with(
     jsonStringifyBody, // last layer
-    logObject, // 2nd to last etc.
+    observe, // 2nd to last etc.
     ...
   )
   .from({ headers: null, body: { foo: 'bar' } })
 //   ^? ({ headers: null; body: unknown }) => { headers: null; body: string } 🙌
 ```
 
-> ☝️ Note that layers are applied in reverse for improved readability.
+> ☝️ Layers are applied in reverse for improved readability.
+
+> `Onion.produce` checks that the before and after type constraints are respected and requires `never` if they are not:
+>
+> ```ts
+> import type { Numbers } from 'hotscript'
+>
+> const addOne: Layer<
+>   number,
+>   Numbers.Add<1>,
+>   number,
+>   Numbers.Sub<1>
+> > = before => before + 1
+>
+> const after = Onion.produce<{ headers: null; body: string }>()
+>   .with(jsonStringifyBody, addOne)
+>   //   👇 Error: `1` is not assignable to `never`
+>   .from(1)
+> ```
 
 ## 🚀 Building Middlewares
 
@@ -141,8 +165,9 @@ import type { Layer } from '@onion.js/core'
 import type { Functions, Objects } from 'hotscript'
 
 const jsonStringifyRespBody: Layer<
-  (...params: unknown[]) => Record<string, unknown>,
+  (...params: unknown[]) => { body: unknown },
   Functions.MapReturnType<Objects.Update<'body', string>>,
+  (...params: unknown[]) => { body: string },
   Functions.MapReturnType<Objects.Update<'body', unknown>>
 > = before => {
   function after(...params: unknown[]) {
@@ -160,7 +185,7 @@ import { Onion } from '@onion.js/core'
 
 const before = () => ({ body: { foo: 'bar' } })
 
-const after = Onion.wrap(before).with(jsonStringifyRespBody)
+const wrapped = Onion.wrap(before).with(jsonStringifyRespBody)
 //      ^? () => { body: string } 🙌
 
 const produced = Onion.produce<() => { body: string }>()
@@ -174,10 +199,10 @@ const produced = Onion.produce<() => { body: string }>()
 You can create new layers from existing ones with `composeDown` and `composeUp`:
 
 ```ts
-import { compose, Onion } from '@onion.js/core'
+import { composeDown, Onion } from '@onion.js/core'
 
 const composedLayer = composeDown(
-  logObject, // 1st layer
+  observe, // 1st layer
   jsonStringifyBody, // 2nd layer etc.
   ...
 )
@@ -185,7 +210,7 @@ const after = Onion.wrap(before).with(composedLayer)
 
 // Similar to:
 const after = Onion.wrap(before).with(
-  logObject,
+  observe,
   jsonStringifyBody,
   ...
 )
@@ -193,7 +218,7 @@ const after = Onion.wrap(before).with(
 
 > It is advised to use `composeDown` when wrapping, and `composeUp` when producing for better readability.
 
-## 💪 Customizable Layers
+## 💪 Customizing Layers
 
 Layers can **accept parameters** to allow for customization. But make sure to use [generics](https://www.typescriptlang.org/docs/handbook/2/generics.html) if needed!
 
@@ -201,8 +226,9 @@ For instance, let's define a `jsonStringifyProp` layer that `JSON.stringifies` a
 
 ```ts
 type JSONStringifyPropLayer<KEY extends string> = Layer<
-  Record<string, unknown>,
+  Record<KEY, unknown>,
   Objects.Update<KEY, string>,
+  Record<KEY, string>,
   Objects.Update<KEY, unknown>
 >
 
@@ -228,16 +254,16 @@ We can even compose customizable layers by making good use of the `ComposeUpLaye
 ```ts
 import type { ComposeDownLayers } from '@onion.js/core'
 
-type LogAndStringifyPropLayer<KEY extends string> = ComposeDownLayers<[
-  LogObjectLayer,
+type ObserveAndStringifyPropLayer<KEY extends string> = ComposeDownLayers<[
+  ObserveLayer,
   JSONStringifyPropLayer<KEY>
 ]>
 
-const logAndStringifyProp = <KEY extends string>(
+const observeAndStringifyProp = <KEY extends string>(
   key: KEY
-): JSONStringifyPropLayer<KEY> => composeDown(logOject, jsonStringifyProp(key))
+): ObserveAndStringifyPropLayer<KEY> => composeDown(observe, jsonStringifyProp(key))
 
 const after = Onion.wrap({ yolo: { foo: 'bar' } })
   //    ^? { yolo: string } 🙌
-  .with(jsonStringifyProp('yolo'))
+  .with(observeAndStringifyProp('yolo'))
 ```

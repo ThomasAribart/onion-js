@@ -12,24 +12,24 @@ const composeTwo =
 
 const identity: Layer = (arg: unknown): unknown => arg
 
-type First<ITEMS extends unknown[]> = ITEMS extends [
+type Head<ITEMS extends unknown[]> = ITEMS extends [
   infer ITEMS_HEAD,
   ...unknown[]
 ]
   ? ITEMS_HEAD
   : never
 
-type Last<ITEMS extends unknown[], OUTPUT = never> = ITEMS extends [
-  infer ITEMS_HEAD,
-  ...infer ITEMS_TAIL
+type Last<ITEMS extends unknown[]> = ITEMS extends [
+  ...unknown[],
+  infer ITEMS_LAST
 ]
-  ? Last<ITEMS_TAIL, ITEMS_HEAD>
-  : OUTPUT
+  ? ITEMS_LAST
+  : never
 
 export type ComposeUpLayers<LAYERS extends Layer[]> = Layer<
   Last<LAYERS> extends Layer ? Before<Last<LAYERS>> : never,
   ComposeUp<OutFns<LAYERS>>,
-  First<LAYERS> extends Layer ? After<First<LAYERS>> : never,
+  Head<LAYERS> extends Layer ? After<Head<LAYERS>> : never,
   ComposeDown<InFns<LAYERS>>
 >
 
@@ -39,7 +39,7 @@ export const composeUp = <LAYERS extends Layer[]>(
   layers.reduce(composeTwo, identity) as ComposeUpLayers<LAYERS>
 
 export type ComposeDownLayers<LAYERS extends Layer[]> = Layer<
-  First<LAYERS> extends Layer ? Before<First<LAYERS>> : never,
+  Head<LAYERS> extends Layer ? Before<Head<LAYERS>> : never,
   ComposeDown<OutFns<LAYERS>>,
   Last<LAYERS> extends Layer ? After<Last<LAYERS>> : never,
   ComposeUp<InFns<LAYERS>>
